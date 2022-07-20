@@ -104,14 +104,17 @@ module Rpc = struct
     let* read_body = read_body in
     let request_buffer = Grpc.Buffer.v () in
     let message, message_notify = Lwt.task () in
-    let on_eof () =
-      let message = Grpc.Message.extract request_buffer in
-      Lwt.wakeup_later message_notify message
-    in
+    let on_eof () = () in
+    let ignore_read _ ~off:_ ~len:_ = () in
     let rec on_read buffer ~off ~len =
       Grpc.Buffer.copy_from_bigstringaf ~src_off:off ~src:buffer
         ~dst:request_buffer ~length:len;
-      H2.Body.schedule_read read_body ~on_read ~on_eof
+      let message = Grpc.Message.extract request_buffer in
+      match message with
+      | Some message ->
+          Lwt.wakeup_later message_notify (Some message);
+          H2.Body.schedule_read read_body ~on_read:ignore_read ~on_eof
+      | None -> H2.Body.schedule_read read_body ~on_read ~on_eof
     in
     H2.Body.schedule_read read_body ~on_read ~on_eof;
     f message
